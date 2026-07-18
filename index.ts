@@ -50,11 +50,26 @@ type Family = "anthropic" | "openai" | "gemini";
 
 type Api = "anthropic-messages" | "openai-completions" | "google-generative-ai";
 
+// Compat block applied to every model registered under a family. CLIProxyAPIPlus
+// proxies to backends (Anthropic, OpenAI-compatible, Google) that do not accept
+// OpenAI's `store`, `developer` role, or `max_completion_tokens` fields. Kimi K3
+// in particular returns "tokenization failed" when any of those are sent.
+// Mirror the compat block users ship in models.json so pi emits backend-friendly
+// requests. `supportsReasoningEffort` is true for the openai family because K3
+// and similar reasoning models accept `reasoning_effort: low|high|max`.
+interface FamilyCompat {
+	supportsStore: false;
+	supportsDeveloperRole: false;
+	supportsReasoningEffort: boolean;
+	maxTokensField: "max_tokens";
+}
+
 interface FamilySpec {
 	family: Family;
 	providerName: string;
 	api: Api;
 	baseSuffix: string; // appended to cfg.baseUrl
+	compat: FamilyCompat;
 }
 
 const FAMILIES: Record<Family, FamilySpec> = {
@@ -63,18 +78,21 @@ const FAMILIES: Record<Family, FamilySpec> = {
 		providerName: "cliproxy",
 		api: "anthropic-messages",
 		baseSuffix: "",
+		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
 	},
 	openai: {
 		family: "openai",
 		providerName: "cliproxy-openai",
 		api: "openai-completions",
 		baseSuffix: "/v1",
+		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: true, maxTokensField: "max_tokens" },
 	},
 	gemini: {
 		family: "gemini",
 		providerName: "cliproxy-gemini",
 		api: "google-generative-ai",
 		baseSuffix: "/v1beta",
+		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
 	},
 };
 
@@ -233,9 +251,10 @@ interface PiModelConfig {
 	cost: { input: 0; output: 0; cacheRead: 0; cacheWrite: 0 };
 	contextWindow: number;
 	maxTokens: number;
+	compat: FamilyCompat;
 }
 
-function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
+function toProviderModel(m: CLIProxyListModel, cfg: Config, compat: FamilyCompat): PiModelConfig {
 	const inferred = inferLimits(m.id);
 	const contextWindow = cfg.contextOverrides[m.id] ?? inferred.contextWindow;
 	const maxTokens = cfg.maxTokensOverrides[m.id] ?? inferred.maxTokens;
@@ -247,6 +266,7 @@ function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow,
 		maxTokens,
+		compat,
 	};
 }
 
@@ -278,7 +298,8 @@ function registerFamilies(pi: ExtensionAPI, cfg: Config, rawModels: CLIProxyList
 		gemini: [],
 	};
 	for (const m of rawModels) {
-		buckets[classifyFamily(m)].push(toProviderModel(m, cfg));
+		const family = classifyFamily(m);
+		buckets[family].push(toProviderModel(m, cfg, FAMILIES[family].compat));
 	}
 
 	// The apiKey pi receives; we never set authHeader so pi won't add its own
