@@ -201,8 +201,70 @@ function classifyFamily(m: CLIProxyListModel): Family {
 	return "openai";
 }
 
+interface ModelMetadata { reasoning: boolean; input: ("text" | "image")[]; contextWindow: number; maxTokens: number; }
+
+// Explicit per-model metadata for models served by CLIProxyAPIPlus. Sourced from
+// each model's official docs (e.g. https://www.kimi.com/code/docs/en/kimi-code/models
+// for Kimi K3: 1M context, low/high/max reasoning_effort, text+image input).
+// inferLimits/inferReasoning/inferImageInput remain as fallbacks for ids not listed here.
+const MODEL_METADATA: Record<string, ModelMetadata> = {
+	"claude-opus-4-6-thinking": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 128_000 },
+	"claude-sonnet-4-6": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 128_000 },
+	"gemini-3-flash": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3-flash-agent": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.1-flash-image": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.1-flash-lite": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.1-pro-low": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.5-flash-extra-low": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.5-flash-low": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-pro-agent": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"kimi-k2": { reasoning: false, input: ["text"], contextWindow: 131_072, maxTokens: 16_384 },
+	"kimi-k2-thinking": { reasoning: true, input: ["text"], contextWindow: 262_144, maxTokens: 262_144 },
+	"kimi-k2.5": { reasoning: true, input: ["text", "image"], contextWindow: 262_144, maxTokens: 262_144 },
+	"kimi-k2.6": { reasoning: true, input: ["text", "image"], contextWindow: 262_144, maxTokens: 262_144 },
+	"kimi-k2.7-code": { reasoning: true, input: ["text", "image"], contextWindow: 262_144, maxTokens: 262_144 },
+	"kimi-k2.7-code-highspeed": { reasoning: true, input: ["text", "image"], contextWindow: 262_144, maxTokens: 262_144 },
+	"kimi-k3": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 131_072 },
+	"grok-3-mini": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 131_072 },
+	"grok-3-mini-fast": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 131_072 },
+	"grok-4.20-0309-non-reasoning": { reasoning: false, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
+	"grok-4.20-0309-reasoning": { reasoning: true, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
+	"grok-4.20-multi-agent-0309": { reasoning: true, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
+	"grok-4.3": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 30_000 },
+	"grok-4.5": { reasoning: true, input: ["text", "image"], contextWindow: 500_000, maxTokens: 500_000 },
+	"grok-build-0.1": { reasoning: true, input: ["text", "image"], contextWindow: 256_000, maxTokens: 256_000 },
+	"grok-composer-2.5-fast": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"grok-imagine-image": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"grok-imagine-image-quality": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"grok-imagine-video": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"grok-imagine-video-1.5-preview": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"codex-auto-review": { reasoning: true, input: ["text"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-5.3-codex-spark": { reasoning: true, input: ["text"], contextWindow: 128_000, maxTokens: 32_000 },
+	"gpt-5.4": { reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-5.4-mini": { reasoning: true, input: ["text", "image"], contextWindow: 400_000, maxTokens: 128_000 },
+	"gpt-5.5": { reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-5.6-luna": { reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-5.6-sol": { reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-5.6-terra": { reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 },
+	"gpt-oss-120b-medium": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 32_768 },
+	"gpt-image-1.5": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"gpt-image-2": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
+	"glm-4.5": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 98_304 },
+	"glm-4.5-air": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 98_304 },
+	"glm-4.6": { reasoning: true, input: ["text"], contextWindow: 204_800, maxTokens: 131_072 },
+	"glm-4.7": { reasoning: true, input: ["text"], contextWindow: 204_800, maxTokens: 131_072 },
+	"glm-5": { reasoning: true, input: ["text"], contextWindow: 202_752, maxTokens: 131_072 },
+	"glm-5-turbo": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
+	"glm-5.1": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
+	"glm-5.2": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 131_072 },
+	"glm-5v-turbo": { reasoning: true, input: ["text", "image"], contextWindow: 200_000, maxTokens: 131_072 },
+	"z-ai/glm-5.2-ultrafast": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 131_072 },
+};
+
 function inferReasoning(id: string): boolean {
 	const l = id.toLowerCase();
+	if (l.includes("kimi-k2-thinking") || l.includes("kimi-k2.5") || l.includes("kimi-k2.6") || l.includes("kimi-k2.7") || l.includes("kimi-k3")) return true;
+	if (l.includes("kimi-k2")) return false;
 	return (
 		l.includes("claude") ||
 		l.includes("gemini") ||
@@ -217,6 +279,8 @@ function inferReasoning(id: string): boolean {
 
 function inferImageInput(id: string): boolean {
 	const l = id.toLowerCase();
+	if (l.includes("kimi-k2.5") || l.includes("kimi-k2.6") || l.includes("kimi-k2.7") || l.includes("kimi-k3")) return true;
+	if (l.includes("kimi-k2")) return false;
 	return (
 		l.includes("claude") ||
 		l.includes("gemini") ||
@@ -229,6 +293,9 @@ function inferImageInput(id: string): boolean {
 
 function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 	const l = id.toLowerCase();
+	if (l.includes("kimi-k3")) return { contextWindow: 1_048_576, maxTokens: 131_072 };
+	if (l.includes("kimi-k2.7") || l.includes("kimi-k2.6") || l.includes("kimi-k2.5") || l.includes("kimi-k2-thinking")) return { contextWindow: 262_144, maxTokens: 262_144 };
+	if (l.includes("kimi-k2")) return { contextWindow: 131_072, maxTokens: 16_384 };
 	if (l.includes("claude-opus")) return { contextWindow: 200_000, maxTokens: 32_000 };
 	if (l.includes("claude")) return { contextWindow: 200_000, maxTokens: 64_000 };
 	if (l.includes("gemini-2.5") || l.includes("gemini-3")) return { contextWindow: 1_000_000, maxTokens: 65_536 };
