@@ -203,16 +203,54 @@ function classifyFamily(m: CLIProxyListModel): Family {
 
 interface ModelMetadata { reasoning: boolean; input: ("text" | "image")[]; contextWindow: number; maxTokens: number; }
 
-// Explicit per-model metadata for models served by CLIProxyAPIPlus. Sourced from
-// each model's official docs (e.g. https://www.kimi.com/code/docs/en/kimi-code/models
-// for Kimi K3: 1M context, low/high/max reasoning_effort, text+image input).
-// inferLimits/inferReasoning/inferImageInput remain as fallbacks for ids not listed here.
+// ---------------------------------------------------------------------------
+// MODEL_METADATA policy
+// ---------------------------------------------------------------------------
+// Authoritative sources, in priority order:
+//
+// 1. Model LIST (which ids exist) — from the live CLIProxyAPIPlus `/v1/models`
+//    endpoint. Reconcile with:
+//      curl -s -H "Authorization: Bearer $CLIPROXY_API_KEY" $CLIPROXY_URL/v1/models
+//    (or `/cliproxy-models` from inside pi). Every id the proxy serves MUST
+//    have an explicit entry below.
+//
+// 2. contextWindow — from each model's OFFICIAL VENDOR DOCS. The proxy's
+//    `context_window` field in ~/.grok/config.toml is NOT authoritative — it is
+//    a hardcoded heuristic in the cliproxy-api-provider plugin's sync-models.mjs
+//    that applies a blanket 200k cap to Claude/Kimi/GLM (understating
+//    long-context models like claude-opus-4-6, kimi-k3, glm-5.2) and overstates
+//    grok-4.x. Always cite the vendor docs page in the commit message when
+//    changing a contextWindow. Sources used:
+//      - Anthropic: https://platform.claude.com/docs/en/docs/about-claude/models/overview
+//      - Google:    https://ai.google.dev/gemini-api/docs/gemini-3
+//      - xAI:       https://docs.x.ai/developers/models/<model-id>
+//      - Kimi:      https://platform.kimi.ai/docs/models
+//      - Z.ai:      https://docs.z.ai/guides/llm/<model>.md
+//
+// 3. reasoning — from the proxy's `supports_reasoning_effort` flag (mirrored
+//    in ~/.grok/config.toml). The proxy's flag reflects what the backend
+//    actually accepts, so it is authoritative for runtime behavior and wins
+//    over vendor docs when they conflict (e.g. grok-build-0.1's docs page
+//    lists "Reasoning: Yes" but the proxy rejects reasoning_effort, so we set
+//    reasoning=false to avoid sending a rejected parameter).
+//
+// 4. input (text vs text+image) and maxTokens — from official vendor docs.
+//    For models with no public docs page (internal/proprietary ids like
+//    codex-auto-review, gpt-5.6-sol/terra/luna, grok-composer, grok-imagine-*),
+//    historical catalog values are retained unchanged rather than guessed.
+//
+// 5. When the proxy and vendor docs conflict on contextWindow, vendor docs
+//    win (field 2). On reasoning, the proxy wins (field 3).
+//
+// inferLimits/inferReasoning/inferImageInput below are FALLBACKS for ids not
+// yet listed here; any model the proxy serves should eventually get an explicit
+// entry.
 const MODEL_METADATA: Record<string, ModelMetadata> = {
 	"claude-opus-4-6-thinking": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 128_000 },
 	"claude-sonnet-4-6": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 128_000 },
 	"gemini-3-flash": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
 	"gemini-3-flash-agent": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
-	"gemini-3.1-flash-image": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
+	"gemini-3.1-flash-image": { reasoning: false, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
 	"gemini-3.1-flash-lite": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
 	"gemini-3.1-pro-low": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
 	"gemini-3.5-flash-extra-low": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 },
@@ -227,12 +265,12 @@ const MODEL_METADATA: Record<string, ModelMetadata> = {
 	"kimi-k3": { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 131_072 },
 	"grok-3-mini": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 131_072 },
 	"grok-3-mini-fast": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 131_072 },
-	"grok-4.20-0309-non-reasoning": { reasoning: false, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
-	"grok-4.20-0309-reasoning": { reasoning: true, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
-	"grok-4.20-multi-agent-0309": { reasoning: true, input: ["text", "image"], contextWindow: 2_000_000, maxTokens: 2_000_000 },
-	"grok-4.3": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 30_000 },
+	"grok-4.20-0309-non-reasoning": { reasoning: false, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 1_000_000 },
+	"grok-4.20-0309-reasoning": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 1_000_000 },
+	"grok-4.20-multi-agent-0309": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 1_000_000 },
+	"grok-4.3": { reasoning: true, input: ["text", "image"], contextWindow: 1_000_000, maxTokens: 1_000_000 },
 	"grok-4.5": { reasoning: true, input: ["text", "image"], contextWindow: 500_000, maxTokens: 500_000 },
-	"grok-build-0.1": { reasoning: true, input: ["text", "image"], contextWindow: 256_000, maxTokens: 256_000 },
+	"grok-build-0.1": { reasoning: false, input: ["text", "image"], contextWindow: 256_000, maxTokens: 256_000 },
 	"grok-composer-2.5-fast": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
 	"grok-imagine-image": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
 	"grok-imagine-image-quality": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
@@ -251,18 +289,22 @@ const MODEL_METADATA: Record<string, ModelMetadata> = {
 	"gpt-image-2": { reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 8_192 },
 	"glm-4.5": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 98_304 },
 	"glm-4.5-air": { reasoning: true, input: ["text"], contextWindow: 131_072, maxTokens: 98_304 },
-	"glm-4.6": { reasoning: true, input: ["text"], contextWindow: 204_800, maxTokens: 131_072 },
-	"glm-4.7": { reasoning: true, input: ["text"], contextWindow: 204_800, maxTokens: 131_072 },
-	"glm-5": { reasoning: true, input: ["text"], contextWindow: 202_752, maxTokens: 131_072 },
+	"glm-4.6": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
+	"glm-4.7": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
+	"glm-5": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
 	"glm-5-turbo": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
 	"glm-5.1": { reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 131_072 },
-	"glm-5.2": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 131_072 },
+	"glm-5.2": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 128_000 },
 	"glm-5v-turbo": { reasoning: true, input: ["text", "image"], contextWindow: 200_000, maxTokens: 131_072 },
-	"z-ai/glm-5.2-ultrafast": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 131_072 },
+	"z-ai/glm-5.2-ultrafast": { reasoning: true, input: ["text"], contextWindow: 1_000_000, maxTokens: 128_000 },
 };
 
 function inferReasoning(id: string): boolean {
 	const l = id.toLowerCase();
+	// Per the MODEL_METADATA policy, reasoning follows the proxy's
+	// supports_reasoning_effort flag where known; otherwise infer from the id.
+	// Kimi base (kimi-k2) is non-reasoning per Kimi docs; -thinking/-k2.5+ reason.
+	if (l === "kimi-k2") return false;
 	if (l.includes("kimi-k2-thinking") || l.includes("kimi-k2.5") || l.includes("kimi-k2.6") || l.includes("kimi-k2.7") || l.includes("kimi-k3")) return true;
 	if (l.includes("kimi-k2")) return false;
 	return (
@@ -293,19 +335,30 @@ function inferImageInput(id: string): boolean {
 
 function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 	const l = id.toLowerCase();
+	// Context windows below are sourced from each family's OFFICIAL vendor docs
+	// (see MODEL_METADATA policy). Values not confirmed by docs retain their
+	// historical catalog defaults. The proxy's reported context_window is NOT
+	// used here — it applies a blanket 200k cap that understates long-context
+	// models (Claude/Kimi-k3/GLM-5.2) and is unreliable.
 	if (l.includes("kimi-k3")) return { contextWindow: 1_048_576, maxTokens: 131_072 };
 	if (l.includes("kimi-k2.7") || l.includes("kimi-k2.6") || l.includes("kimi-k2.5") || l.includes("kimi-k2-thinking")) return { contextWindow: 262_144, maxTokens: 262_144 };
 	if (l.includes("kimi-k2")) return { contextWindow: 131_072, maxTokens: 16_384 };
-	if (l.includes("claude-opus")) return { contextWindow: 200_000, maxTokens: 32_000 };
-	if (l.includes("claude")) return { contextWindow: 200_000, maxTokens: 64_000 };
-	if (l.includes("gemini-2.5") || l.includes("gemini-3")) return { contextWindow: 1_000_000, maxTokens: 65_536 };
-	if (l.includes("gemini")) return { contextWindow: 1_000_000, maxTokens: 8_192 };
-	if (l.includes("gpt-5")) return { contextWindow: 400_000, maxTokens: 16_384 };
+	if (l.includes("claude")) return { contextWindow: 1_000_000, maxTokens: 128_000 };
+	if (l.includes("gemini-2.5") || l.includes("gemini-3")) return { contextWindow: 1_048_576, maxTokens: 65_536 };
+	if (l.includes("gemini")) return { contextWindow: 1_048_576, maxTokens: 8_192 };
+	if (l.includes("grok-4.20") || l.includes("grok-4.3")) return { contextWindow: 1_000_000, maxTokens: 1_000_000 };
+	if (l.includes("grok-4.5")) return { contextWindow: 500_000, maxTokens: 500_000 };
+	if (l.includes("grok-build")) return { contextWindow: 256_000, maxTokens: 256_000 };
+	if (l.includes("grok")) return { contextWindow: 131_072, maxTokens: 8_192 };
+	if (l.includes("glm-5.2")) return { contextWindow: 1_000_000, maxTokens: 128_000 };
+	if (l.includes("glm-4.6") || l.includes("glm-4.7") || l.includes("glm-5")) return { contextWindow: 200_000, maxTokens: 131_072 };
+	if (l.includes("glm-4.5")) return { contextWindow: 131_072, maxTokens: 98_304 };
+	if (l.includes("glm")) return { contextWindow: 200_000, maxTokens: 131_072 };
+	if (l.includes("gpt-5")) return { contextWindow: 272_000, maxTokens: 128_000 };
 	if (l.includes("gpt-4.1")) return { contextWindow: 1_000_000, maxTokens: 32_768 };
 	if (l.includes("gpt-4o")) return { contextWindow: 128_000, maxTokens: 16_384 };
 	if (l.includes("o1") || l.includes("o3") || l.includes("o4")) return { contextWindow: 200_000, maxTokens: 100_000 };
 	if (l.includes("kiro")) return { contextWindow: 200_000, maxTokens: 64_000 };
-	if (l.includes("glm")) return { contextWindow: 200_000, maxTokens: 16_384 };
 	if (l.includes("qwen") || l.includes("codex")) return { contextWindow: 128_000, maxTokens: 8_192 };
 	return { contextWindow: 128_000, maxTokens: 8_192 };
 }
