@@ -2,29 +2,28 @@
 
 A [pi-coding-agent](https://github.com/badlogic/pi-mono) extension that exposes
 [CLIProxyAPIPlus](https://github.com/router-for-me/CLIProxyAPIPlus) models to
-`pi`'s model picker and routes each model family through its native streaming
-API (Anthropic Messages, OpenAI Chat Completions, or Google Generative AI).
+`pi`'s model picker through CLIProxy's unified OpenAI-compatible `/v1` surface.
 
 That means you can `/login` to Claude Code, Gemini CLI, OpenAI Codex, GitHub
 Copilot, Kiro, GLM, etc. inside CLIProxyAPIPlus once, and then consume all of
-those subscriptions from `pi` with their native features intact — prompt
-caching for Claude, thinking for Gemini, and so on.
+those subscriptions from `pi` under a single provider name.
 
-## Why three providers?
+## One provider
 
-`pi.registerProvider()` forces a single `baseUrl` per provider, but the
-Anthropic, OpenAI, and Google SDKs expect different base paths (`/`, `/v1`,
-`/v1beta`). The extension therefore partitions the discovered models across up
-to three providers:
+CLIProxyAPIPlus already unifies every backend behind OpenAI Chat Completions at
+`/v1`, so this extension registers **one** provider for every discovered model:
 
-| Provider          | Family             | pi API              | base path          |
-| ----------------- | ------------------ | ------------------- | ------------------ |
-| `cliproxy`        | Claude / Anthropic | `anthropic-messages`  | `<url>`            |
-| `cliproxy-openai` | OpenAI / Codex / Copilot / Kiro / GLM / Qwen … | `openai-completions`  | `<url>/v1`         |
-| `cliproxy-gemini` | Google / Gemini    | `google-generative-ai`| `<url>/v1beta`     |
+| Provider   | Models                         | pi API               | base path  |
+| ---------- | ------------------------------ | -------------------- | ---------- |
+| `cliproxy` | Claude, Gemini, OpenAI, Grok, GLM, Kimi, … | `openai-completions` | `<url>/v1` |
 
-Providers with no matching models are **not** registered. If you only run
-Claude accounts through CLIProxy, you only get `cliproxy/…` models.
+Each model carries a shared compat block (`supportsStore: false`,
+`supportsDeveloperRole: false`, `maxTokensField: "max_tokens"`,
+`supportsReasoningEffort: true`) so backends that reject OpenAI-only fields
+(e.g. Kimi K3) still tokenize cleanly.
+
+Legacy names `cliproxy-openai` and `cliproxy-gemini` are unregistered on load
+and on `/cliproxy-refresh`.
 
 ## Install
 
@@ -94,8 +93,9 @@ Start `pi` and pick a model with `Ctrl+P` or `/model`:
 ```
 cliproxy/claude-sonnet-4-5
 cliproxy/claude-opus-4-5
-cliproxy-gemini/gemini-2.5-pro
-cliproxy-openai/gpt-5-codex
+cliproxy/gemini-2.5-pro
+cliproxy/gpt-5-codex
+cliproxy/kimi-k3
 ...
 ```
 
@@ -103,8 +103,9 @@ Or via flag:
 
 ```bash
 pi --provider cliproxy --model claude-sonnet-4-5
-pi --provider cliproxy-gemini --model gemini-2.5-pro
-pi --provider cliproxy-openai --model gpt-4o
+pi --provider cliproxy --model gemini-2.5-pro
+pi --provider cliproxy --model gpt-4o
+pi --provider cliproxy --model kimi-k3
 ```
 
 ### Slash commands
@@ -118,9 +119,7 @@ pi --provider cliproxy-openai --model gpt-4o
 ### Listing models from the CLI
 
 ```bash
-pi --list-models cliproxy         # Claude-family models
-pi --list-models cliproxy-gemini  # Gemini-family models
-pi --list-models cliproxy-openai  # everything else
+pi --list-models cliproxy   # every model the proxy serves
 ```
 
 ## Behaviour notes
@@ -153,3 +152,14 @@ running pi session, or restart pi.
 ## License
 
 MIT
+
+## Grok / rust pi agent
+
+This package also ships a **Grok plugin** (for the rust `grok` CLI) that keeps
+`~/.grok/config.toml` model mappings synced from the same catalog SSOT.
+
+See [PLUGINS.md](./PLUGINS.md) and run:
+
+```bash
+./scripts/install-all.sh
+```

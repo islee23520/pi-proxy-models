@@ -1,7 +1,7 @@
 {
 	"name": "pi-proxy-models",
 	"version": "0.0.4",
-	"description": "Pi coding-agent extension that exposes CLIProxyAPIPlus models (Claude, Gemini, OpenAI/Codex, Copilot, Kiro, GLM, Qwen, ...) to pi's model picker, routing each family through its native streaming API (anthropic-messages, openai-completions, google-generative-ai) so features like prompt caching and thinking work end-to-end.",
+	"description": "CLIProxyAPIPlus model bridge for pi (TS extension) and Grok/rust-pi (cliproxy-api-provider plugin). Catalog SSOT: ~/.agents/references/model-catalog.json. Families: Claude, Gemini, OpenAI/Codex, Grok, GLM, Kimi, \u2026",
 	"homepage": "https://github.com/victormilk/pi-proxy-models#readme",
 	"bugs": {
 		"url": "https://github.com/victormilk/pi-proxy-models/issues"
@@ -25,5 +25,17 @@
 	},
 	"devDependencies": {
 		"@mariozechner/pi-coding-agent": "^0.67.68"
-	}
+	},
+	"scripts": {
+		"test": "bun test"
+	},
+	"files": [
+		"index.ts",
+		"plugins/**",
+		"scripts/**",
+		"README.md",
+		"PLUGINS.md",
+		"metadata.test.ts",
+		"register.test.ts"
+	]
 }

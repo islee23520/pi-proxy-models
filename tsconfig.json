@@ -10,7 +10,12 @@
 		"allowImportingTsExtensions": true,
 		"resolveJsonModule": true,
 		"isolatedModules": true,
-		"types": ["./node_modules/@mariozechner/pi-coding-agent/node_modules/@types/node"]
+		"types": [
+			"./node_modules/@mariozechner/pi-coding-agent/node_modules/@types/node"
+		]
 	},
-	"include": ["index.ts"]
+	"include": [
+		"index.ts",
+		"metadata.test.ts"
+	]
 }

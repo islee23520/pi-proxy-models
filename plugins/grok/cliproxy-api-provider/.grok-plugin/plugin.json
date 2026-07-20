@@ -1,0 +1,15 @@
+{
+  "name": "cliproxy-api-provider",
+  "version": "0.2.0",
+  "description": "CLIProxy model mappings for Grok (rust) from shared model-catalog.json SSOT; companion to pi-proxy-models TS extension.",
+  "author": {
+    "name": "local"
+  },
+  "keywords": [
+    "cliproxy",
+    "cli-proxy-api",
+    "models",
+    "provider",
+    "reasoning-effort"
+  ]
+}

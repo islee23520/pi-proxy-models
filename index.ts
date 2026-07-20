@@ -2,15 +2,15 @@
  * CLIProxyAPIPlus extension for pi-coding-agent.
  *
  * Registers models served by a local/remote CLIProxyAPIPlus instance
- * (https://github.com/router-for-me/CLIProxyAPIPlus) as pi providers.
+ * (https://github.com/router-for-me/CLIProxyAPIPlus) as a single pi provider:
  *
- * Because pi locks one baseUrl per provider but the Anthropic / OpenAI /
- * Gemini SDKs each expect different path prefixes, this extension registers
- * up to three providers and partitions discovered models by family:
+ *   cliproxy -> every model via openai-completions (baseUrl "/v1")
  *
- *   cliproxy        -> Claude/Anthropic models via anthropic-messages  (baseUrl "/")
- *   cliproxy-openai -> OpenAI/Codex/Copilot/etc.  via openai-completions (baseUrl "/v1")
- *   cliproxy-gemini -> Gemini/Google models      via google-generative-ai (baseUrl "/v1beta")
+ * CLIProxyAPIPlus already exposes a unified OpenAI-compatible surface at
+ * `/v1`, so Anthropic / Gemini / OpenAI / Kimi / GLM / Grok ids all share
+ * one provider name and the openai-completions + compat block (formerly only
+ * used by cliproxy-openai). Legacy provider names cliproxy-openai and
+ * cliproxy-gemini are unregistered on refresh so old picker entries vanish.
  *
  * Config is read from env vars (CLIPROXY_URL, CLIPROXY_API_KEY) first, then
  * ~/.pi/agent/cliproxy.json ({ "baseUrl": "...", "apiKey": "..." }).
@@ -46,55 +46,59 @@ interface Config {
 	maxTokensOverrides: Record<string, number>;
 }
 
-type Family = "anthropic" | "openai" | "gemini";
-
-type Api = "anthropic-messages" | "openai-completions" | "google-generative-ai";
-
-// Compat block applied to every model registered under a family. CLIProxyAPIPlus
-// proxies to backends (Anthropic, OpenAI-compatible, Google) that do not accept
-// OpenAI's `store`, `developer` role, or `max_completion_tokens` fields. Kimi K3
-// in particular returns "tokenization failed" when any of those are sent.
+// Compat block applied to every model. CLIProxyAPIPlus proxies to backends
+// (Anthropic, OpenAI-compatible, Google) that do not accept OpenAI's `store`,
+// `developer` role, or `max_completion_tokens` fields. Kimi K3 in particular
+// returns "tokenization failed" when any of those are sent.
 // Mirror the compat block users ship in models.json so pi emits backend-friendly
-// requests. `supportsReasoningEffort` is true for the openai family because K3
-// and similar reasoning models accept `reasoning_effort: low|high|max`.
-interface FamilyCompat {
+// requests. `supportsReasoningEffort` is true because K3 and similar reasoning
+// models accept `reasoning_effort: low|high|max`.
+interface ModelCompat {
 	supportsStore: false;
 	supportsDeveloperRole: false;
 	supportsReasoningEffort: boolean;
 	maxTokensField: "max_tokens";
+	// Optional per-model map from pi effort levels to backend reasoning_effort.
+	// Used when a backend (e.g. Kimi K3: low|high|max) does not accept pi's full vocabulary.
+	reasoningEffortMap?: { minimal?: string; low?: string; medium?: string; high?: string; xhigh?: string };
 }
 
-interface FamilySpec {
-	family: Family;
-	providerName: string;
-	api: Api;
-	baseSuffix: string; // appended to cfg.baseUrl
-	compat: FamilyCompat;
-}
-
-const FAMILIES: Record<Family, FamilySpec> = {
-	anthropic: {
-		family: "anthropic",
-		providerName: "cliproxy",
-		api: "anthropic-messages",
-		baseSuffix: "",
-		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
-	},
-	openai: {
-		family: "openai",
-		providerName: "cliproxy-openai",
-		api: "openai-completions",
-		baseSuffix: "/v1",
-		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: true, maxTokensField: "max_tokens" },
-	},
-	gemini: {
-		family: "gemini",
-		providerName: "cliproxy-gemini",
-		api: "google-generative-ai",
-		baseSuffix: "/v1beta",
-		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
-	},
+/** Single provider: all CLIProxy models via openai-completions at /v1. */
+const PROVIDER = {
+	providerName: "cliproxy",
+	api: "openai-completions" as const,
+	baseSuffix: "/v1",
+	compat: {
+		supportsStore: false,
+		supportsDeveloperRole: false,
+		supportsReasoningEffort: true,
+		maxTokensField: "max_tokens",
+	} satisfies ModelCompat,
 };
+
+/** Old multi-family provider names removed after the unified registration. */
+const LEGACY_PROVIDERS = ["cliproxy-openai", "cliproxy-gemini"] as const;
+
+/** Pure plan for registration — exported so tests can lock the single-provider contract. */
+export interface RegistrationPlan {
+	providerName: string;
+	api: "openai-completions";
+	baseSuffix: "/v1";
+	compat: ModelCompat;
+	legacyProviders: readonly string[];
+	modelIds: string[];
+}
+
+export function planRegistration(rawModels: CLIProxyListModel[]): RegistrationPlan {
+	return {
+		providerName: PROVIDER.providerName,
+		api: PROVIDER.api,
+		baseSuffix: PROVIDER.baseSuffix,
+		compat: PROVIDER.compat,
+		legacyProviders: LEGACY_PROVIDERS,
+		modelIds: rawModels.map((m) => m.id),
+	};
+}
 
 // pi's validation requires a non-empty apiKey when `models` is set. When the
 // user hasn't set one (unauthenticated local proxy), we send this placeholder;
@@ -189,17 +193,8 @@ async function fetchModels(cfg: Config): Promise<CLIProxyListModel[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Model classification + metadata inference
+// Model metadata inference
 // ---------------------------------------------------------------------------
-
-function classifyFamily(m: CLIProxyListModel): Family {
-	const id = m.id.toLowerCase();
-	const owner = (m.owned_by ?? "").toLowerCase();
-
-	if (owner.includes("anthropic") || id.includes("claude")) return "anthropic";
-	if (owner.includes("google") || owner.includes("gemini") || id.includes("gemini")) return "gemini";
-	return "openai";
-}
 
 interface ModelMetadata { reasoning: boolean; input: ("text" | "image")[]; contextWindow: number; maxTokens: number; }
 
@@ -371,18 +366,40 @@ interface PiModelConfig {
 	cost: { input: 0; output: 0; cacheRead: 0; cacheWrite: 0 };
 	contextWindow: number;
 	maxTokens: number;
-	compat: FamilyCompat;
+	compat: ModelCompat;
 }
 
-function toProviderModel(m: CLIProxyListModel, cfg: Config, compat: FamilyCompat): PiModelConfig {
-	const inferred = inferLimits(m.id);
-	const contextWindow = cfg.contextOverrides[m.id] ?? inferred.contextWindow;
-	const maxTokens = cfg.maxTokensOverrides[m.id] ?? inferred.maxTokens;
+/** Resolve metadata for a model id: MODEL_METADATA table first, infer* fallback. Exported for tests. */
+export function resolveModelMetadata(id: string): ModelMetadata {
+	const hit = MODEL_METADATA[id];
+	if (hit) return hit;
+	const limits = inferLimits(id);
+	return {
+		reasoning: inferReasoning(id),
+		input: inferImageInput(id) ? ["text", "image"] : ["text"],
+		contextWindow: limits.contextWindow,
+		maxTokens: limits.maxTokens,
+	};
+}
+
+export function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
+	const meta = resolveModelMetadata(m.id);
+	const contextWindow = cfg.contextOverrides[m.id] ?? meta.contextWindow;
+	const maxTokens = cfg.maxTokensOverrides[m.id] ?? meta.maxTokens;
+	// Kimi K3 accepts only reasoning_effort: low | high | max (default max).
+	// Map pi's effort vocabulary onto Kimi's so /effort xhigh -> max, etc.
+	let compat: ModelCompat = PROVIDER.compat;
+	if (m.id.toLowerCase() === "kimi-k3") {
+		compat = {
+			...PROVIDER.compat,
+			reasoningEffortMap: { minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max" },
+		};
+	}
 	return {
 		id: m.id,
 		name: m.owned_by ? `${m.id} (${m.owned_by})` : m.id,
-		reasoning: inferReasoning(m.id),
-		input: inferImageInput(m.id) ? ["text", "image"] : ["text"],
+		reasoning: meta.reasoning,
+		input: meta.input,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow,
 		maxTokens,
@@ -403,6 +420,12 @@ function fallbackModels(): CLIProxyListModel[] {
 		{ id: "gpt-5-codex", owned_by: "openai" },
 		{ id: "gpt-4o", owned_by: "openai" },
 		{ id: "gpt-4o-mini", owned_by: "openai" },
+		{ id: "grok-4.5", owned_by: "xai" },
+		{ id: "grok-4.3", owned_by: "xai" },
+		{ id: "glm-5.2", owned_by: "zai" },
+		{ id: "z-ai/glm-5.2-ultrafast", owned_by: "zai" },
+		{ id: "glm-5v-turbo", owned_by: "zai" },
+		{ id: "kimi-k3", owned_by: "moonshot" },
 	];
 }
 
@@ -411,48 +434,41 @@ function fallbackModels(): CLIProxyListModel[] {
 // ---------------------------------------------------------------------------
 
 function registerFamilies(pi: ExtensionAPI, cfg: Config, rawModels: CLIProxyListModel[]): number {
-	// Partition models by family.
-	const buckets: Record<Family, PiModelConfig[]> = {
-		anthropic: [],
-		openai: [],
-		gemini: [],
-	};
-	for (const m of rawModels) {
-		const family = classifyFamily(m);
-		buckets[family].push(toProviderModel(m, cfg, FAMILIES[family].compat));
+	const plan = planRegistration(rawModels);
+	const models = rawModels.map((m) => toProviderModel(m, cfg));
+
+	// Drop legacy multi-family provider names so the picker only shows cliproxy/*.
+	for (const name of plan.legacyProviders) {
+		try {
+			pi.unregisterProvider(name);
+		} catch {
+			/* no-op if not registered */
+		}
 	}
 
 	// The apiKey pi receives; we never set authHeader so pi won't add its own
-	// Bearer header — the underlying SDK (Anthropic/OpenAI/Google) sends auth
-	// natively using this value. CLIProxyAPIPlus accepts any value when its
-	// `api-keys:` is empty, so a placeholder works for unauthenticated setups.
+	// Bearer header — the underlying SDK sends auth natively using this value.
+	// CLIProxyAPIPlus accepts any value when its `api-keys:` is empty, so a
+	// placeholder works for unauthenticated setups.
 	const effectiveKey = cfg.apiKey || PLACEHOLDER_KEY;
 
-	let total = 0;
-	for (const family of Object.keys(buckets) as Family[]) {
-		const spec = FAMILIES[family];
-		const models = buckets[family];
-		if (models.length === 0) {
-			// Nothing to register for this family. Unregister any stale
-			// registration from a previous refresh.
-			try {
-				pi.unregisterProvider(spec.providerName);
-			} catch {
-				/* no-op if not registered */
-			}
-			continue;
+	if (models.length === 0) {
+		try {
+			pi.unregisterProvider(plan.providerName);
+		} catch {
+			/* no-op if not registered */
 		}
-
-		pi.registerProvider(spec.providerName, {
-			baseUrl: cfg.baseUrl + spec.baseSuffix,
-			apiKey: effectiveKey,
-			api: spec.api,
-			models,
-		});
-		total += models.length;
+		return 0;
 	}
 
-	return total;
+	pi.registerProvider(plan.providerName, {
+		baseUrl: cfg.baseUrl + plan.baseSuffix,
+		apiKey: effectiveKey,
+		api: plan.api,
+		models,
+	});
+
+	return models.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -532,7 +548,7 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 				lastFetched = models;
 				lastCount = models.length;
 				const total = registerFamilies(pi, cfg, models);
-				notify(ctx, `CLIProxy: refreshed ${total} models across ${new Set(models.map(classifyFamily)).size} providers`, "success");
+				notify(ctx, `CLIProxy: refreshed ${total} models under ${PROVIDER.providerName}`, "success");
 			} catch (err) {
 				notify(ctx, `CLIProxy refresh failed: ${(err as Error).message}`, "error");
 			}

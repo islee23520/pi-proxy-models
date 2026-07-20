@@ -1,0 +1,18 @@
+{
+  "description": "cliproxy-api-provider — restore CLIProxy model mappings on session start",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${GROK_PLUGIN_ROOT}/scripts/sync-models.mjs\" --hook",
+            "timeout": 20,
+            "description": "cliproxy-api-provider: sync model mappings",
+            "statusMessage": "cliproxy-api-provider: syncing model mappings"
+          }
+        ]
+      }
+    ]
+  }
+}
