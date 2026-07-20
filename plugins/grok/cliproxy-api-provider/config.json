@@ -1,12 +1,8 @@
 {
-  "baseUrl": "http://127.0.0.1:8317/v1",
   "defaultModel": "grok-4.5",
   "webSearch": "grok-4.20-multi-agent-0309",
   "defaultReasoningEffort": "high",
   "envKey": "XAI_API_KEY",
   "apiBackend": "chat_completions",
-  "timeoutMs": 4000,
-  "catalogPath": "/Users/ilseoblee/.agents/references/model-catalog.json",
-  "managedTomlPath": "/Users/ilseoblee/.agents/references/cliproxy-models.managed.toml",
-  "userConfigPath": "/Users/ilseoblee/.grok/config.user.toml"
+  "timeoutMs": 4000
 }

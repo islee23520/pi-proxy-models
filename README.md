@@ -60,11 +60,11 @@ The extension reads its config in this order (first match wins):
 2. `~/.pi/agent/cliproxy.json`:
    ```json
    {
-     "baseUrl": "http://localhost:8317",
+     "baseUrl": "http://localhost:8317"  # example,
      "apiKey": "your-api-key"
    }
    ```
-3. Default: `baseUrl = http://localhost:8317`, no API key
+3. No default — `baseUrl` must be set via env or config file
 
 A missing/empty API key is **tolerated** — the extension passes a placeholder
 downstream. CLIProxyAPIPlus accepts any value when its own `api-keys:` list is
@@ -81,7 +81,7 @@ pi
 
 # File-based (persistent local config)
 cat > ~/.pi/agent/cliproxy.json <<EOF
-{ "baseUrl": "http://localhost:8317", "apiKey": "dev-key" }
+{ "baseUrl": "http://localhost:8317"  # example, "apiKey": "dev-key" }
 EOF
 pi
 ```
@@ -138,7 +138,7 @@ pi --list-models cliproxy   # every model the proxy serves
 
 **`CLIProxy unreachable`** — verify the proxy is listening:
 ```bash
-curl -s http://localhost:8317/v1/models | jq '.data | length'
+curl -s http://localhost:8317/v1/models  # example endpoint | jq '.data | length'
 ```
 
 **`302 Found` / `unauthorized` from Gemini or OpenAI** — CLIProxyAPIPlus is

@@ -144,9 +144,15 @@ function loadConfig(): Config {
 		}
 	}
 
-	let baseUrl = envUrl || fileBase || "http://localhost:8317";
+	// baseUrl must come from env (CLIPROXY_URL) or config file — no hardcoded default.
+	const rawBaseUrl = envUrl || fileBase;
+	if (!rawBaseUrl) {
+		throw new Error(
+			"[cliproxy] baseUrl not set. Set CLIPROXY_URL env var or baseUrl in ~/.pi/agent/cliproxy.json",
+		);
+	}
 	// Strip trailing slashes so we can safely append suffixes.
-	baseUrl = baseUrl.replace(/\/+$/, "");
+	const baseUrl = rawBaseUrl.replace(/\/+$/, "");
 
 	const apiKey = envKey ?? fileKey ?? "";
 

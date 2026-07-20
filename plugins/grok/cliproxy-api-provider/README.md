@@ -93,7 +93,7 @@ Optional overrides (first found wins):
 
 ```json
 {
-  "baseUrl": "http://127.0.0.1:8317/v1",
+  "baseUrl": "http://127.0.0.1:8317/v1"  # example,
   "defaultModel": "grok-4.5",
   "webSearch": "grok-4.20-multi-agent-0309",
   "defaultReasoningEffort": "high",
